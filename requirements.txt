@@ -1,0 +1,50 @@
+# ─────────────────────────────────────────────────────────────
+# AI Semantic Firewall — Dependency Manifest
+# Python >= 3.11 required
+# ─────────────────────────────────────────────────────────────
+
+# ── Web Framework ─────────────────────────────────────────────
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+httpx==0.27.2
+
+# ── Data Validation & Serialization ───────────────────────────
+pydantic==2.10.3
+pydantic-settings==2.6.1
+
+# ── Async Utilities ───────────────────────────────────────────
+anyio==4.7.0
+aiohttp==3.11.10
+aiofiles==24.1.0
+
+# ── LLM Providers (choose one or both) ────────────────────────
+openai==1.57.4
+anthropic==0.40.0
+# google-generativeai==0.8.3        # Uncomment to use Gemini as auditor
+
+# ── Agent Frameworks (optional) ───────────────────────────────
+# langchain==0.3.9                  # Uncomment to use LangChain agent
+# langgraph==0.2.56                 # Uncomment to use LangGraph agent
+
+# ── Resilience ────────────────────────────────────────────────
+tenacity==9.0.0
+
+# ── Structured Logging ────────────────────────────────────────
+structlog==24.4.0
+loguru==0.7.2
+
+# ── Terminal UI & Reporting ───────────────────────────────────
+rich==13.9.4
+
+# ── Configuration ─────────────────────────────────────────────
+python-dotenv==1.0.1
+
+# ── Testing ───────────────────────────────────────────────────
+pytest==8.3.4
+pytest-asyncio==0.24.0
+pytest-httpx==0.34.0
+respx==0.21.1
+
+# ── Utilities ─────────────────────────────────────────────────
+python-ulid==3.0.0          # Human-sortable unique IDs for request tracing
+orjson==3.10.12             # Fast JSON serialization for audit logs

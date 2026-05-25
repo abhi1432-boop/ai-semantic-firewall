@@ -1,0 +1,25 @@
+# Environment — NEVER commit real keys
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Runtime / generated
+reports/audit_log.jsonl
+
+# IDE
+.DS_Store
+.vscode/
+.idea/
