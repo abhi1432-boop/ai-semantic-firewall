@@ -32,7 +32,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 import tracker
-from config import settings
+from config import settings, ACTION_VALIDATION_MODES
 from schemas import (
     ActionType,
     AgentAction,
@@ -48,6 +48,7 @@ from schemas import (
     RefundRequest,
     SubscriptionCancellationRequest,
     SubscriptionUpdateRequest,
+    ValidationMode,
 )
 from validation_engine import run_layer_a, run_layer_b
 
@@ -280,7 +281,36 @@ async def process_action(action: AgentAction) -> FirewallResponse:
             message="Request blocked by deterministic rule validation.",
         )
 
-    # ── Step 2: Layer B — Semantic Auditor ────────────────────────────────────
+    # ── Step 2: Check validation mode for this action type ───────────────────
+    mode = ACTION_VALIDATION_MODES.get(action.action_type.value, ValidationMode.STRICT)
+
+    if settings.enable_semantic_auditor and mode == ValidationMode.ASYNC:
+        # Layer A passed. Fire Layer B in the background and return immediately.
+        # The background task will alert + escalate if the auditor flags a problem.
+        api_status_code, api_response = await _forward_to_api(action, request_id)
+        decision = GatewayDecision.ALLOW
+        outcome = OutcomeCategory.SUCCESS
+
+        import asyncio as _asyncio
+        _asyncio.ensure_future(_audit_in_background(action, wall_start))
+
+        log.info(
+            "gateway.allowed_async_audit",
+            request_id=request_id,
+            action_type=action.action_type,
+            note="Layer B running in background",
+        )
+        return FirewallResponse(
+            request_id=request_id,
+            decision=decision,
+            allowed=True,
+            outcome_category=outcome,
+            api_response=api_response,
+            total_latency_ms=round((time.monotonic() - wall_start) * 1000, 2),
+            message="Request allowed (async audit running in background).",
+        )
+
+    # ── Step 3: Layer B — Semantic Auditor (STRICT / synchronous) ────────────
     if settings.enable_semantic_auditor:
         business_state = await _fetch_business_state(action)
         layer_b_result = await run_layer_b(action, business_state)
@@ -409,7 +439,7 @@ async def process_action(action: AgentAction) -> FirewallResponse:
                     message="Request rejected — auditor could not confidently verify the action.",
                 )
 
-    # ── Step 3: ALLOW — Forward to Mock API ──────────────────────────────────
+    # ── Step 4: ALLOW — Forward to Mock API ──────────────────────────────────
     override = correction_applied  # May be None if no correction was needed
     api_status_code, api_response = await _forward_to_api(action, request_id, override)
 
@@ -474,6 +504,54 @@ def _enqueue_escalation(
     _escalation_queue[item.request_id] = item
     log.info("gateway.escalated", request_id=item.request_id, reason=item.layer_b_reason)
     return item
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helper: Async (background) Layer B audit
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def _audit_in_background(action: AgentAction, wall_start: float) -> None:
+    """
+    Run Layer B after the response has already been returned to the agent.
+    If the auditor flags a problem, log an alert and enqueue for human review.
+    Used for ASYNC-mode actions (reads / low-risk writes).
+    """
+    try:
+        business_state = await _fetch_business_state(action)
+        layer_b_result = await run_layer_b(action, business_state)
+
+        if layer_b_result.verdict == AuditVerdict.FAIL:
+            log.warning(
+                "gateway.async_audit_flag",
+                request_id=action.request_id,
+                action_type=action.action_type,
+                confidence=layer_b_result.confidence,
+                reason=layer_b_result.failure_reason,
+                note="Action already executed — flagging for review only",
+            )
+            if settings.enable_escalation:
+                _enqueue_escalation(
+                    action,
+                    layer_b_result,
+                    [layer_b_result.failure_reason or "Async audit flagged this action post-execution."],
+                )
+        else:
+            log.debug(
+                "gateway.async_audit_pass",
+                request_id=action.request_id,
+                confidence=layer_b_result.confidence,
+            )
+
+        # Record the full event with the background audit result
+        layer_a_stub = await run_layer_a(action)  # already passed; re-use result cheaply
+        await _record(
+            action, layer_a_stub, layer_b_result,
+            GatewayDecision.ALLOW, OutcomeCategory.SUCCESS,
+            None, 0, None, None, wall_start,
+        )
+    except Exception:
+        log.exception("gateway.async_audit_error", request_id=action.request_id)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -10,6 +10,21 @@ from __future__ import annotations
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Per-action-type validation mode.
+# STRICT  — Layer A + Layer B both run synchronously before the action executes.
+#           Use for any mutation that is hard to reverse (refunds, cancellations, credits).
+# ASYNC   — Layer A runs synchronously; Layer B fires in the background after the
+#           response is returned. Use for read-only or low-risk actions where
+#           blocking on the LLM auditor would hurt latency.
+ACTION_VALIDATION_MODES: dict[str, str] = {
+    "process_refund":        "strict",   # irreversible money movement
+    "issue_credit":          "strict",   # irreversible balance change
+    "cancel_subscription":   "strict",   # hard to undo
+    "update_subscription":   "strict",   # billing impact
+    "lookup_customer":       "async",    # read-only
+    "lookup_invoice":        "async",    # read-only
+}
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(

@@ -405,6 +405,11 @@ class FirewallResponse(BaseModel):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+class ValidationMode(str, Enum):
+    STRICT = "strict"   # Block until both layers pass (default for mutations)
+    ASYNC = "async"     # Layer A blocks; Layer B fires in background (for reads/low-risk)
+
+
 class EscalationStatus(str, Enum):
     PENDING = "pending"
     APPROVED = "approved"
